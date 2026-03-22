@@ -77,6 +77,7 @@ public:
         NIGHTSWORD,
         DARKCORE,
         IRONCLAW_W,
+        IRONCLAW_W_SE,
         KATARPROXT,
         K95L,
         GLAIVEPRO,
@@ -138,7 +139,7 @@ public:
     // Type of device
     inline static bool  isKeyboard(Model model)     { return !isMouse(model) && !isMousepad(model) && !isHeadsetStand(model) && model != NO_MODEL; }
     inline bool         isKeyboard() const          { return isKeyboard(keyModel); }
-    inline static bool  isMouse(Model model)        { return model == M55 || model == M65 || model == SABRE || model == SCIMITAR || model == HARPOON || model == GLAIVE || model == KATAR || model == KATARPROXT || model == M65E || model == M95 || model == IRONCLAW || model == NIGHTSWORD || model == DARKCORE || model == DARKCORERGBPRO || model == IRONCLAW_W || model == GLAIVEPRO; }
+    inline static bool  isMouse(Model model)        { return model == M55 || model == M65 || model == SABRE || model == SCIMITAR || model == HARPOON || model == GLAIVE || model == KATAR || model == KATARPROXT || model == M65E || model == M95 || model == IRONCLAW || model == NIGHTSWORD || model == DARKCORE || model == DARKCORERGBPRO || model == IRONCLAW_W || model == IRONCLAW_W_SE || model == GLAIVEPRO; }
     inline bool         isMouse() const             { return isMouse(keyModel); }
     inline static bool  isMousepad(Model model)     { return model == POLARIS || model == MM700; }
     inline bool         isMousepad() const          { return isMousepad(keyModel); }

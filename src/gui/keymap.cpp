@@ -1705,6 +1705,8 @@ KeyMap::Model KeyMap::getModel(const QString& name){
         return NIGHTSWORD;
     if(lower == "ironclaw_wireless")
         return IRONCLAW_W;
+    if(lower == "ironclaw_wireless_se")
+        return IRONCLAW_W_SE;
     if(lower == "k95l")
         return K95L;
     if(lower == "glaivepro")
@@ -1796,6 +1798,8 @@ QString KeyMap::getModel(KeyMap::Model model){
         return "nightsword";
     case IRONCLAW_W:
         return "ironclaw_wireless";
+    case IRONCLAW_W_SE:
+        return "ironclaw_wireless_se";
     case K95L:
         return "k95l";
     case GLAIVEPRO:
@@ -2029,7 +2033,11 @@ QString KeyMap::friendlyName(const QString& key, Layout layout){
     map = KeyMap(IRONCLAW_W, layout);
     if(map.contains(key))
         return map.key(key).friendlyName();
+    map = KeyMap(IRONCLAW_W_SE, layout);
+    if(map.contains(key))
+        return map.key(key).friendlyName();
 
+    
     // Not found at all
     return "";
 }
