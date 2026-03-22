@@ -16,77 +16,122 @@ jobs:
           - distro: ubuntu
             version: "22.04"
             package_format: deb
+            qt_version: qt5
           - distro: ubuntu
             version: "24.04"
             package_format: deb
+            qt_version: qt6
           - distro: debian
             version: "12"
             package_format: deb
+            qt_version: qt6
           - distro: fedora
             version: "41"
             package_format: rpm
+            qt_version: qt6
           - distro: archlinux
             version: "latest"
             package_format: pkg.tar.zst
+            qt_version: qt6
     
     container:
       image: ${{ matrix.distro }}:${{ matrix.version }}
     
     steps:
-      - name: Install dependencies (Debian/Ubuntu)
-        if: matrix.package_format == 'deb'
+      - name: Install dependencies (Debian/Ubuntu Qt5)
+        if: matrix.package_format == 'deb' && matrix.qt_version == 'qt5'
         run: |
           apt-get update && apt-get install -y \
             build-essential \
             cmake \
             git \
+            libdbusmenu-qt5-dev \
+            libpulse-dev \
+            libqt5x11extras5-dev \
+            libquazip5-dev \
+            libudev-dev \
+            libxcb-ewmh-dev \
+            libxcb-screensaver0-dev \
+            libxcb1-dev \
             qtbase5-dev \
             qttools5-dev \
-            libqt5svg5-dev \
-            libudev-dev \
-            libusb-1.0-0-dev \
-            libx11-dev \
-            libxi-dev \
-            libxrandr-dev \
-            pkg-config
+            zlib1g-dev \
+            dpkg-dev \
+            file
 
-      - name: Install dependencies (Fedora)
+      - name: Install dependencies (Debian/Ubuntu Qt6)
+        if: matrix.package_format == 'deb' && matrix.qt_version == 'qt6'
+        run: |
+          apt-get update && apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            libpulse-dev \
+            libquazip1-qt6-dev \
+            libudev-dev \
+            libxcb-ewmh-dev \
+            libxcb-screensaver0-dev \
+            libxcb1-dev \
+            qt6-base-dev \
+            qt6-base-private-dev \
+            qt6-tools-dev \
+            qt6-wayland \
+            qt6-wayland-dev \
+            wayland-protocols \
+            zlib1g-dev \
+            dpkg-dev \
+            file
+
+      - name: Install dependencies (Fedora Qt6)
         if: matrix.distro == 'fedora'
         run: |
           dnf install -y \
-            gcc-c++ \
-            make \
             cmake \
+            gcc \
+            gcc-c++ \
             git \
-            qt5-qtbase-devel \
-            qt5-qttools-devel \
-            qt5-qtsvg-devel \
+            glibc \
+            libxcb-devel \
+            libpulse \
+            libxcb-devel \
+            make \
+            pulseaudio-libs-devel \
+            qt6-linguist \
+            qt6-qtbase-devel \
+            qt6-qttools-devel \
+            qt6-qtwayland-devel \
+            quazip-qt6-devel \
+            rpm-build \
             systemd-devel \
-            libusb1-devel \
-            libX11-devel \
-            libXi-devel \
-            libXrandr-devel \
-            pkgconfig
+            wayland-devel \
+            wayland-protocols-devel \
+            xcb-util-devel \
+            xcb-util-wm-devel \
+            zlib-devel
 
-      - name: Install dependencies (Arch Linux)
+      - name: Install dependencies (Arch Linux Qt6)
         if: matrix.distro == 'archlinux'
         run: |
           pacman -Syu --noconfirm \
             base-devel \
             cmake \
+            gcc \
             git \
-            qt5-base \
-            qt5-tools \
-            qt5-svg \
-            systemd-libs \
-            libusb \
-            libx11 \
-            libxi \
-            libxrandr \
-            pkgconfig
+            libpulse \
+            libsystemd \
+            libxcb \
+            qt6-base \
+            qt6-tools \
+            qt6-wayland \
+            quazip-qt6 \
+            wayland-protocols \
+            xcb-util-wm \
+            zlib
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Build ckb-next
         run: |
@@ -122,31 +167,32 @@ jobs:
           make install DESTDIR=../pkgdir
           mkdir -p ../artifacts
           
+          # Get installed size
+          PKGDIR_SIZE=$(du -sb ../pkgdir | cut -f1)
+          
           # Create .PKGINFO
-          cat > ../pkgdir/.PKGINFO << 'EOF'
+          cat > ../pkgdir/.PKGINFO << EOF
           pkgname = ckb-next
           pkgver = ${{ github.ref_name }}
           pkgdesc = ckb-next driver for Corsair keyboards and mice (with Ironclaw Wireless SE support)
           url = https://github.com/zacpr/ckb-next
           builddate = $(date +%s)
           packager = ZacPr <zac@ashurtech.net>
-          size = $(du -sb ../pkgdir | cut -f1)
+          size = ${PKGDIR_SIZE}
           arch = x86_64
           license = GPL-2.0
-          depend = qt5-base
-          depend = qt5-svg
+          depend = qt6-base
+          depend = qt6-svg
+          depend = quazip-qt6
           depend = libusb
           depend = systemd-libs
           EOF
           
-          # Create .MTREE
+          # Create package using makepkg-style tarball
           cd ../pkgdir
-          find . -type f -o -type l -o -type d | sed 's|^\./||' | grep -v '^\.$' > ../files.list
-          bsdtar -czf ../artifacts/ckb-next-${{ github.ref_name }}-1-x86_64.pkg.tar.zst \
-            --options='!compression' \
+          tar --use-compress-program=zstd -cf ../artifacts/ckb-next-${{ github.ref_name }}-1-x86_64.pkg.tar.zst \
             --uid 0 --gid 0 \
-            -T ../files.list \
-            .PKGINFO
+            .PKGINFO usr
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
