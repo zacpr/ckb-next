@@ -1,0 +1,155 @@
+---
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    name: Build Linux Packages
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - distro: ubuntu
+            version: "22.04"
+            package_format: deb
+          - distro: ubuntu
+            version: "24.04"
+            package_format: deb
+          - distro: debian
+            version: "12"
+            package_format: deb
+          - distro: fedora
+            version: "41"
+            package_format: rpm
+          - distro: archlinux
+            version: "latest"
+            package_format: pkg.tar.zst
+    
+    container:
+      image: ${{ matrix.distro }}:${{ matrix.version }}
+    
+    steps:
+      - name: Install dependencies
+        run: |
+          if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y \
+              build-essential \
+              cmake \
+              git \
+              qtbase5-dev \
+              qttools5-dev \
+              libqt5svg5-dev \
+              libudev-dev \
+              libusb-1.0-0-dev \
+              libx11-dev \
+              libxi-dev \
+              libxrandr-dev \
+              pkg-config \
+              rpm \
+              dpkg-dev \
+              fakeroot
+          elif command -v pacman &> /dev/null; then
+            pacman -Syu --noconfirm \
+              base-devel \
+              cmake \
+              git \
+              qt5-base \
+              qt5-tools \
+              qt5-svg \
+              systemd-libs \
+              libusb \
+              libx11 \
+              libxi \
+              libxrandr \
+              pkgconfig
+          elif command -v dnf &> /dev/null; then
+            dnf install -y \
+              @development-tools \
+              cmake \
+              git \
+              qt5-qtbase-devel \
+              qt5-qttools-devel \
+              qt5-qtsvg-devel \
+              systemd-devel \
+              libusb1-devel \
+              libX11-devel \
+              libXi-devel \
+              libXrandr-devel \
+              pkgconfig \
+              rpm-build \
+              rpmdevtools
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build ckb-next
+        run: |
+          mkdir -p build
+          cd build
+          cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DENABLE_EXPERIMENTAL=ON \
+            -DCPACK_GENERATOR=${{ matrix.package_format }} \
+            ..
+          make -j$(nproc)
+
+      - name: Create packages
+        run: |
+          cd build
+          cpack -G ${{ matrix.package_format }}
+          mkdir -p artifacts
+          if [ "${{ matrix.package_format }}" = "deb" ]; then
+            cp *.deb artifacts/ || true
+          elif [ "${{ matrix.package_format }}" = "rpm" ]; then
+            cp *.rpm artifacts/ || true
+          elif [ "${{ matrix.package_format }}" = "pkg.tar.zst" ]; then
+            cp *.pkg.tar.zst artifacts/ || true
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.distro }}-${{ matrix.version }}
+          path: build/artifacts/
+          retention-days: 90
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-linux
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release Info
+        run: |
+          echo "Release created successfully!"
+          echo "Tag: ${{ github.ref_name }}"
+          echo "Download URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
