@@ -1,4 +1,3 @@
----
 name: Build and Release
 
 on:
@@ -34,56 +33,57 @@ jobs:
       image: ${{ matrix.distro }}:${{ matrix.version }}
     
     steps:
-      - name: Install dependencies
+      - name: Install dependencies (Debian/Ubuntu)
+        if: matrix.package_format == 'deb'
         run: |
-          if command -v apt-get &> /dev/null; then
-            apt-get update && apt-get install -y \
-              build-essential \
-              cmake \
-              git \
-              qtbase5-dev \
-              qttools5-dev \
-              libqt5svg5-dev \
-              libudev-dev \
-              libusb-1.0-0-dev \
-              libx11-dev \
-              libxi-dev \
-              libxrandr-dev \
-              pkg-config \
-              rpm \
-              dpkg-dev \
-              fakeroot
-          elif command -v pacman &> /dev/null; then
-            pacman -Syu --noconfirm \
-              base-devel \
-              cmake \
-              git \
-              qt5-base \
-              qt5-tools \
-              qt5-svg \
-              systemd-libs \
-              libusb \
-              libx11 \
-              libxi \
-              libxrandr \
-              pkgconfig
-          elif command -v dnf &> /dev/null; then
-            dnf install -y \
-              @development-tools \
-              cmake \
-              git \
-              qt5-qtbase-devel \
-              qt5-qttools-devel \
-              qt5-qtsvg-devel \
-              systemd-devel \
-              libusb1-devel \
-              libX11-devel \
-              libXi-devel \
-              libXrandr-devel \
-              pkgconfig \
-              rpm-build \
-              rpmdevtools
-          fi
+          apt-get update && apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            qtbase5-dev \
+            qttools5-dev \
+            libqt5svg5-dev \
+            libudev-dev \
+            libusb-1.0-0-dev \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            pkg-config
+
+      - name: Install dependencies (Fedora)
+        if: matrix.distro == 'fedora'
+        run: |
+          dnf install -y \
+            gcc-c++ \
+            make \
+            cmake \
+            git \
+            qt5-qtbase-devel \
+            qt5-qttools-devel \
+            qt5-qtsvg-devel \
+            systemd-devel \
+            libusb1-devel \
+            libX11-devel \
+            libXi-devel \
+            libXrandr-devel \
+            pkgconfig
+
+      - name: Install dependencies (Arch Linux)
+        if: matrix.distro == 'archlinux'
+        run: |
+          pacman -Syu --noconfirm \
+            base-devel \
+            cmake \
+            git \
+            qt5-base \
+            qt5-tools \
+            qt5-svg \
+            systemd-libs \
+            libusb \
+            libx11 \
+            libxi \
+            libxrandr \
+            pkgconfig
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -94,62 +94,136 @@ jobs:
           cd build
           cmake \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
             -DENABLE_EXPERIMENTAL=ON \
-            -DCPACK_GENERATOR=${{ matrix.package_format }} \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             ..
           make -j$(nproc)
-
-      - name: Create packages
+      
+      - name: Create DEB package
+        if: matrix.package_format == 'deb'
         run: |
           cd build
-          cpack -G ${{ matrix.package_format }}
-          mkdir -p artifacts
-          if [ "${{ matrix.package_format }}" = "deb" ]; then
-            cp *.deb artifacts/ || true
-          elif [ "${{ matrix.package_format }}" = "rpm" ]; then
-            cp *.rpm artifacts/ || true
-          elif [ "${{ matrix.package_format }}" = "pkg.tar.zst" ]; then
-            cp *.pkg.tar.zst artifacts/ || true
-          fi
+          cpack -G DEB
+          mkdir -p ../artifacts
+          mv *.deb ../artifacts/ || true
+      
+      - name: Create RPM package
+        if: matrix.package_format == 'rpm'
+        run: |
+          cd build
+          cpack -G RPM
+          mkdir -p ../artifacts
+          mv *.rpm ../artifacts/ || true
+      
+      - name: Create Arch Linux package
+        if: matrix.package_format == 'pkg.tar.zst'
+        run: |
+          cd build
+          make install DESTDIR=../pkgdir
+          mkdir -p ../artifacts
+          
+          # Create .PKGINFO
+          cat > ../pkgdir/.PKGINFO << 'EOF'
+          pkgname = ckb-next
+          pkgver = ${{ github.ref_name }}
+          pkgdesc = ckb-next driver for Corsair keyboards and mice (with Ironclaw Wireless SE support)
+          url = https://github.com/zacpr/ckb-next
+          builddate = $(date +%s)
+          packager = ZacPr <zac@ashurtech.net>
+          size = $(du -sb ../pkgdir | cut -f1)
+          arch = x86_64
+          license = GPL-2.0
+          depend = qt5-base
+          depend = qt5-svg
+          depend = libusb
+          depend = systemd-libs
+          EOF
+          
+          # Create .MTREE
+          cd ../pkgdir
+          find . -type f -o -type l -o -type d | sed 's|^\./||' | grep -v '^\.$' > ../files.list
+          bsdtar -czf ../artifacts/ckb-next-${{ github.ref_name }}-1-x86_64.pkg.tar.zst \
+            --options='!compression' \
+            --uid 0 --gid 0 \
+            -T ../files.list \
+            .PKGINFO
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.distro }}-${{ matrix.version }}
-          path: build/artifacts/
-          retention-days: 90
+          name: ckb-next-${{ matrix.distro }}-${{ matrix.version }}
+          path: artifacts/
+          retention-days: 30
+          if-no-files-found: warn
 
   create-release:
-    name: Create GitHub Release
+    name: Create Release
     needs: build-linux
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
-
-      - name: Display structure of downloaded files
-        run: ls -R artifacts/
-
+          path: ./artifacts
+          merge-multiple: true
+      
+      - name: List artifacts
+        run: find ./artifacts -type f
+      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/**/*
-          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## Release ${{ github.ref_name }}
+            
+            This release adds support for the **Corsair IRONCLAW RGB WIRELESS SE Gaming Mouse** (USB ID: 1b1c:2b32).
+            
+            ### New Device Support
+            - **Product ID:** 1b1c:2b32 (Wired mode)
+            - **Protocol:** Bragi
+            - **LED Zones:** 6
+            - **DPI:** 18000
+            - **Status:** Experimental (requires `--enable-experimental` flag)
+            
+            ### Installation
+            
+            Download the package for your distribution and install using your package manager.
+            
+            ### Supported Distributions:
+            - Ubuntu 22.04 / 24.04
+            - Debian 12
+            - Fedora 41
+            - Arch Linux
+            
+            ### Device Support
+            
+            **New Device:**
+            - **Corsair IRONCLAW RGB WIRELESS SE** (1b1c:2b32)
+              - Protocol: Bragi
+              - LED Zones: 6
+              - DPI: 18000
+              - Status: Experimental (requires `--enable-experimental` flag)
+            
+            **To enable experimental support:**
+            ```bash
+            ckb-next --enable-experimental
+            ```
+            
+            ## Testing
+            
+            Please test and report issues at: https://github.com/zacpr/ckb-next/issues
+            
+            ## Changes from Upstream
+            
+            - Added support for Corsair IRONCLAW RGB WIRELESS SE Gaming Mouse
+            - All changes are marked as experimental
+            - Uses the same Bragi protocol as existing Ironclaw Wireless
+            
+            For full details, see the commit history.
+          files: ./artifacts/**
           draft: false
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Release Info
-        run: |
-          echo "Release created successfully!"
-          echo "Tag: ${{ github.ref_name }}"
-          echo "Download URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
