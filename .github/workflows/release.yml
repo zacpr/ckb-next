@@ -53,7 +53,21 @@ jobs:
         uses: ./.github/actions/dependencies/install
 
       - name: Build `ckb-next`
-        uses: ./.github/actions/cmake/build
+        run: |
+          mkdir -p build
+          cd build
+          cmake \
+            -S .. \
+            -B . \
+            -DCMAKE_BUILD_TYPE=${BUILD_TYPE:-Release} \
+            -DFORCE_INIT_SYSTEM=systemd \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DSAFE_INSTALL=ON \
+            -DSAFE_UNINSTALL=ON \
+            -DENABLE_EXPERIMENTAL=ON \
+            ..
+          make -j$(nproc)
+        shell: bash --noprofile --norc -euxo pipefail {0}
 
       - name: Install `ckb-next`
         uses: ./.github/actions/cmake/install
