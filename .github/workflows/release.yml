@@ -12,195 +12,61 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - distro: ubuntu
-            version: "22.04"
-            package_format: deb
-            qt_version: qt5
-          - distro: ubuntu
-            version: "24.04"
-            package_format: deb
-            qt_version: qt6
-          - distro: debian
-            version: "12"
-            package_format: deb
-            qt_version: qt6
-          - distro: fedora
-            version: "41"
-            package_format: rpm
-            qt_version: qt6
-          - distro: archlinux
-            version: "latest"
-            package_format: pkg.tar.zst
-            qt_version: qt6
+        image:
+          - 'ubuntu:22.04'
+          - 'ubuntu:24.04'
+          - 'debian:12'
+          - 'fedora:41'
+          - 'archlinux:latest'
+        build_type:
+          - Release
+        compiler:
+          - GNU
+      fail-fast: false
     
     container:
-      image: ${{ matrix.distro }}:${{ matrix.version }}
+      env:
+        BUILD_TYPE: ${{ matrix.build_type || 'Release' }}
+        CC: ${{ matrix.compiler == 'LLVM' && 'clang' || 'gcc' }}
+        CXX: ${{ matrix.compiler == 'LLVM' && 'clang++' || 'g++' }}
+      image: ${{ matrix.image }}
     
     steps:
-      - name: Install dependencies (Debian/Ubuntu Qt5)
-        if: matrix.package_format == 'deb' && matrix.qt_version == 'qt5'
+      - name: Install `git`
         run: |
-          apt-get update && apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            libdbusmenu-qt5-dev \
-            libpulse-dev \
-            libqt5x11extras5-dev \
-            libquazip5-dev \
-            libudev-dev \
-            libxcb-ewmh-dev \
-            libxcb-screensaver0-dev \
-            libxcb1-dev \
-            qtbase5-dev \
-            qttools5-dev \
-            zlib1g-dev \
-            dpkg-dev \
-            file
-
-      - name: Install dependencies (Debian/Ubuntu Qt6)
-        if: matrix.package_format == 'deb' && matrix.qt_version == 'qt6'
-        run: |
-          apt-get update && apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            libpulse-dev \
-            libquazip1-qt6-dev \
-            libudev-dev \
-            libxcb-ewmh-dev \
-            libxcb-screensaver0-dev \
-            libxcb1-dev \
-            qt6-base-dev \
-            qt6-base-private-dev \
-            qt6-tools-dev \
-            qt6-wayland \
-            qt6-wayland-dev \
-            wayland-protocols \
-            zlib1g-dev \
-            dpkg-dev \
-            file
-
-      - name: Install dependencies (Fedora Qt6)
-        if: matrix.distro == 'fedora'
-        run: |
-          dnf install -y \
-            cmake \
-            gcc \
-            gcc-c++ \
-            git \
-            glibc \
-            libxcb-devel \
-            libpulse \
-            libxcb-devel \
-            make \
-            pulseaudio-libs-devel \
-            qt6-linguist \
-            qt6-qtbase-devel \
-            qt6-qttools-devel \
-            qt6-qtwayland-devel \
-            quazip-qt6-devel \
-            rpm-build \
-            systemd-devel \
-            wayland-devel \
-            wayland-protocols-devel \
-            xcb-util-devel \
-            xcb-util-wm-devel \
-            zlib-devel
-
-      - name: Install dependencies (Arch Linux Qt6)
-        if: matrix.distro == 'archlinux'
-        run: |
-          pacman -Syu --noconfirm \
-            base-devel \
-            cmake \
-            gcc \
-            git \
-            libpulse \
-            libsystemd \
-            libxcb \
-            qt6-base \
-            qt6-tools \
-            qt6-wayland \
-            quazip-qt6 \
-            wayland-protocols \
-            xcb-util-wm \
-            zlib
+          if command -v apt-get &> /dev/null; then
+            apt-get --quiet --quiet update && apt-get --quiet --quiet install git
+          elif command -v pacman &> /dev/null; then
+            pacman --sync --refresh --sysupgrade --noconfirm git
+          elif command -v dnf &> /dev/null; then
+            dnf --assumeyes install git
+          elif command -v apk &> /dev/null; then
+            apk add git bash
+          fi
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Build ckb-next
-        run: |
-          mkdir -p build
-          cd build
-          cmake \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DENABLE_EXPERIMENTAL=ON \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            ..
-          make -j$(nproc)
-      
-      - name: Create DEB package
-        if: matrix.package_format == 'deb'
-        run: |
-          cd build
-          cpack -G DEB
-          mkdir -p ../artifacts
-          mv *.deb ../artifacts/ || true
-      
-      - name: Create RPM package
-        if: matrix.package_format == 'rpm'
-        run: |
-          cd build
-          cpack -G RPM
-          mkdir -p ../artifacts
-          mv *.rpm ../artifacts/ || true
-      
-      - name: Create Arch Linux package
-        if: matrix.package_format == 'pkg.tar.zst'
-        run: |
-          cd build
-          make install DESTDIR=../pkgdir
-          mkdir -p ../artifacts
-          
-          # Get installed size
-          PKGDIR_SIZE=$(du -sb ../pkgdir | cut -f1)
-          
-          # Create .PKGINFO
-          cat > ../pkgdir/.PKGINFO << EOF
-          pkgname = ckb-next
-          pkgver = ${{ github.ref_name }}
-          pkgdesc = ckb-next driver for Corsair keyboards and mice (with Ironclaw Wireless SE support)
-          url = https://github.com/zacpr/ckb-next
-          builddate = $(date +%s)
-          packager = ZacPr <zac@ashurtech.net>
-          size = ${PKGDIR_SIZE}
-          arch = x86_64
-          license = GPL-2.0
-          depend = qt6-base
-          depend = qt6-svg
-          depend = quazip-qt6
-          depend = libusb
-          depend = systemd-libs
-          EOF
-          
-          # Create package using makepkg-style tarball
-          cd ../pkgdir
-          tar --use-compress-program=zstd -cf ../artifacts/ckb-next-${{ github.ref_name }}-1-x86_64.pkg.tar.zst \
-            --uid 0 --gid 0 \
-            .PKGINFO usr
+      - name: Install dependencies
+        uses: ./.github/actions/dependencies/install
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ckb-next-${{ matrix.distro }}-${{ matrix.version }}
-          path: artifacts/
-          retention-days: 30
-          if-no-files-found: warn
+      - name: Build `ckb-next`
+        uses: ./.github/actions/cmake/build
+
+      - name: Install `ckb-next`
+        uses: ./.github/actions/cmake/install
+
+      - name: Run `ckb-next-daemon --help`
+        run: |
+          ckb-next-daemon --help
+
+      - name: Package `ckb-next`
+        uses: ./.github/actions/cmake/package
+
+      - name: Upload `ckb-next` package to workflow artifacts
+        uses: ./.github/actions/upload-package
 
   create-release:
     name: Create Release
